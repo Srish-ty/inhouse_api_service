@@ -2,3 +2,7 @@
 #env file
 .env
 *.env
+
+#cache
+./__pycache__
+./core/__pycache__
