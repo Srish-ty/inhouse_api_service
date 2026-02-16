@@ -41,7 +41,7 @@ class EmbeddingService:
 
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         response = await client.embeddings.create(
-            model="text-embedding-3-small",
+            model="text-embedding-ada-002",
             input=texts,
         )
         return [item.embedding for item in response.data]
