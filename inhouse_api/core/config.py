@@ -47,7 +47,6 @@ class Settings(BaseSettings):
         default=0.75, alias="VECTOR_SCORE_THRESHOLD"
     )
     vector_top_k: int = Field(default=8, alias="VECTOR_TOP_K")
-    memory_chunk_mode: str = Field(default="hybrid", alias="MEMORY_CHUNK_MODE")
     memory_chunk_max_tokens: int = Field(
         default=600, alias="MEMORY_CHUNK_MAX_TOKENS"
     )

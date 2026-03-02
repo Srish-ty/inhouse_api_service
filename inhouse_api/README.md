@@ -37,7 +37,6 @@ See `.env.example` for a full list. Key ones:
 - `MONGO_VECTOR_INDEX` - Atlas Vector Search index name
 - `EMBEDDING_PROVIDER` (`local`, `openai`, or `azure_openai`)
 - `EMBEDDING_DIM` - must match your embedding model output dimension
-- `MEMORY_CHUNK_MODE` - `token` or `hybrid`
 - `MEMORY_CHUNK_MAX_TOKENS` / `MEMORY_CHUNK_OVERLAP_TOKENS` - token-based chunking knobs
 - `MEMORY_CHUNK_SEMANTIC_SIMILARITY_THRESHOLD` / `MEMORY_CHUNK_SEMANTIC_MIN_TOKENS` - hybrid chunking controls
 

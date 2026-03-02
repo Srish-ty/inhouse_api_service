@@ -49,10 +49,9 @@ class MemoryService:
         if not structured_events:
             return 0
 
-        chunks = await _chunk_events(
+        chunks = await _chunk_events_hybrid(
             structured_events,
             embedding_service=self._embedding_service,
-            mode=self._settings.memory_chunk_mode,
             max_tokens=self._settings.memory_chunk_max_tokens,
             overlap_tokens=self._settings.memory_chunk_overlap_tokens,
             semantic_similarity_threshold=self._settings.memory_chunk_semantic_similarity_threshold,
@@ -171,90 +170,6 @@ class MemoryService:
         return [doc async for doc in cursor]
 
 
-async def _chunk_events(
-    events: list[dict[str, object]],
-    *,
-    embedding_service: EmbeddingService,
-    mode: str,
-    max_tokens: int,
-    overlap_tokens: int,
-    semantic_similarity_threshold: float,
-    semantic_min_tokens: int,
-) -> list[dict[str, object]]:
-    mode = mode.lower().strip()
-    if mode == "hybrid":
-        return await _chunk_events_hybrid(
-            events,
-            embedding_service=embedding_service,
-            max_tokens=max_tokens,
-            overlap_tokens=overlap_tokens,
-            semantic_similarity_threshold=semantic_similarity_threshold,
-            semantic_min_tokens=semantic_min_tokens,
-        )
-    return _chunk_events_by_tokens(
-        events,
-        max_tokens=max_tokens,
-        overlap_tokens=overlap_tokens,
-    )
-
-
-def _chunk_events_by_tokens(
-    events: list[dict[str, object]], *, max_tokens: int, overlap_tokens: int
-) -> list[dict[str, object]]:
-    max_tokens = max(1, max_tokens)
-    overlap_tokens = max(0, min(overlap_tokens, max_tokens - 1))
-
-    prepared_events = _prepare_events(events)
-
-    chunks_items: list[list[dict[str, object]]] = []
-    i = 0
-    while i < len(prepared_events):
-        current_items: list[dict[str, object]] = []
-        current_tokens = 0
-        j = i
-
-        while j < len(prepared_events):
-            item = prepared_events[j]
-            item_tokens = int(item["token_count"])
-            if current_items and current_tokens + item_tokens > max_tokens:
-                break
-            current_items.append(item)
-            current_tokens += item_tokens
-            j += 1
-
-            # Keep event boundary, but avoid unbounded chunk growth.
-            if current_tokens >= max_tokens:
-                break
-
-        if not current_items:
-            # Safety fallback; should not happen due to loop logic above.
-            break
-
-        chunks_items.append(current_items)
-
-        if j >= len(prepared_events):
-            break
-
-        if overlap_tokens == 0:
-            i = j
-            continue
-
-        # Compute overlap using whole-event boundaries.
-        overlap_start = j
-        back_tokens = 0
-        k = j - 1
-        while k >= i and back_tokens < overlap_tokens:
-            back_tokens += int(prepared_events[k]["token_count"])
-            k -= 1
-        overlap_start = k + 1
-
-        # Ensure forward progress to avoid infinite loops on very large events.
-        if overlap_start <= i:
-            overlap_start = i + 1
-        i = overlap_start
-
-    return [_build_chunk(chunk_items) for chunk_items in chunks_items]
-
 
 async def _chunk_events_hybrid(
     events: list[dict[str, object]],
@@ -285,7 +200,7 @@ async def _chunk_events_hybrid(
 
     event_texts = [str(item["event"].get("text", "")) for item in prepared_events]
     event_embeddings = await embedding_service.embed(event_texts)
-
+ 
     chunks_items: list[list[dict[str, object]]] = []
     current_items: list[dict[str, object]] = []
     current_tokens = 0
