@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import random
-import requests
+import httpx
 from typing import Iterable
+from langchain.embeddings import HuggingFaceEmbeddings
 
 from ..core.config import get_settings
 
@@ -11,7 +10,9 @@ from ..core.config import get_settings
 class EmbeddingService:
     """Simple embedding adapter.
 
-    If provider is "local", generate deterministic pseudo-embeddings.
+    If provider is "local", # generate deterministic pseudo-embeddings locally.
+    generates embeddings using HuggingFace's all-MiniLM-L6-v2 model.
+    If provider is "azure_openai", expects AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_EMBEDDING_MODEL, and AZURE_OPENAI_API_VERSION
     If provider is "openai", expects OPENAI_API_KEY and uses text-embedding-3-small.
     """
 
@@ -19,6 +20,9 @@ class EmbeddingService:
         settings = get_settings()
         self._provider = settings.embedding_provider
         self._dim = settings.embedding_dim
+
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        self._embedder = HuggingFaceEmbeddings(model_name=model_name)
 
     async def embed(self, texts: Iterable[str]) -> list[list[float]]:
         if self._provider == 'azure_openai':
@@ -47,22 +51,20 @@ class EmbeddingService:
             "input": texts
         }
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            return [item['embedding'] for item in data['data']]
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling Azure OpenAI API: {e}")
+            async with httpx.AsyncClient(timeout=50.0) as async_client:
+                response = await async_client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return [item['embedding'] for item in data['data']]
+        except httpx.HTTPError as exc:
+            print(f"HTTP error during Azure OpenAI embedding: {exc}")
             return [[0.0] * self._dim for _ in texts]
 
     def _embed_local(self, text: str) -> list[float]:
         # digest = hashlib.sha256(text.encode("utf-8")).digest()
         # random.seed(digest)
         # return [random.uniform(-1, 1) for _ in range(self._dim)]
-        from langchain.embeddings import HuggingFaceEmbeddings
-        model_name = "sentence-transformers/all-MiniLM-L6-v2"
-        embedder = HuggingFaceEmbeddings(model_name=model_name)
-        return embedder.embed_query(text)
+        return self._embedder.embed_query(text)
 
     async def _embed_openai(self, texts: list[str]) -> list[list[float]]:
         try:
