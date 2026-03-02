@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import datetime
 import json
+import math
 import re
 import uuid
 
@@ -48,18 +49,30 @@ class MemoryService:
         if not structured_events:
             return 0
 
-        chunks = _chunk_events(structured_events, max_chars=2500)
+        chunks = await _chunk_events(
+            structured_events,
+            embedding_service=self._embedding_service,
+            mode=self._settings.memory_chunk_mode,
+            max_tokens=self._settings.memory_chunk_max_tokens,
+            overlap_tokens=self._settings.memory_chunk_overlap_tokens,
+            semantic_similarity_threshold=self._settings.memory_chunk_semantic_similarity_threshold,
+            semantic_min_tokens=self._settings.memory_chunk_semantic_min_tokens,
+        )
         embeddings = await self._embedding_service.embed([chunk["text"] for chunk in chunks])
         collection = get_memory_collection()
         now = datetime.utcnow()
         documents = []
-        for chunk, embedding in zip(chunks, embeddings, strict=False):
+        for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
             documents.append(
                 {
                     "app_name": app_name,
                     "user_id": user_id,
                     "session_id": session_id,
                     "chunk_id": str(uuid.uuid4()),
+                    "chunk_index": idx,
+                    "token_count": chunk["token_count"],
+                    "start_event_id": chunk.get("start_event_id"),
+                    "end_event_id": chunk.get("end_event_id"),
                     "text": chunk["text"],
                     "events": chunk["events"],
                     "embedding": embedding,
@@ -158,13 +171,164 @@ class MemoryService:
         return [doc async for doc in cursor]
 
 
-def _chunk_events(
-    events: list[dict[str, object]], *, max_chars: int
+async def _chunk_events(
+    events: list[dict[str, object]],
+    *,
+    embedding_service: EmbeddingService,
+    mode: str,
+    max_tokens: int,
+    overlap_tokens: int,
+    semantic_similarity_threshold: float,
+    semantic_min_tokens: int,
 ) -> list[dict[str, object]]:
-    chunks: list[dict[str, object]] = []
-    current_events: list[dict[str, object]] = []
-    current_lines: list[str] = []
-    current_length = 0
+    mode = mode.lower().strip()
+    if mode == "hybrid":
+        return await _chunk_events_hybrid(
+            events,
+            embedding_service=embedding_service,
+            max_tokens=max_tokens,
+            overlap_tokens=overlap_tokens,
+            semantic_similarity_threshold=semantic_similarity_threshold,
+            semantic_min_tokens=semantic_min_tokens,
+        )
+    return _chunk_events_by_tokens(
+        events,
+        max_tokens=max_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+
+
+def _chunk_events_by_tokens(
+    events: list[dict[str, object]], *, max_tokens: int, overlap_tokens: int
+) -> list[dict[str, object]]:
+    max_tokens = max(1, max_tokens)
+    overlap_tokens = max(0, min(overlap_tokens, max_tokens - 1))
+
+    prepared_events = _prepare_events(events)
+
+    chunks_items: list[list[dict[str, object]]] = []
+    i = 0
+    while i < len(prepared_events):
+        current_items: list[dict[str, object]] = []
+        current_tokens = 0
+        j = i
+
+        while j < len(prepared_events):
+            item = prepared_events[j]
+            item_tokens = int(item["token_count"])
+            if current_items and current_tokens + item_tokens > max_tokens:
+                break
+            current_items.append(item)
+            current_tokens += item_tokens
+            j += 1
+
+            # Keep event boundary, but avoid unbounded chunk growth.
+            if current_tokens >= max_tokens:
+                break
+
+        if not current_items:
+            # Safety fallback; should not happen due to loop logic above.
+            break
+
+        chunks_items.append(current_items)
+
+        if j >= len(prepared_events):
+            break
+
+        if overlap_tokens == 0:
+            i = j
+            continue
+
+        # Compute overlap using whole-event boundaries.
+        overlap_start = j
+        back_tokens = 0
+        k = j - 1
+        while k >= i and back_tokens < overlap_tokens:
+            back_tokens += int(prepared_events[k]["token_count"])
+            k -= 1
+        overlap_start = k + 1
+
+        # Ensure forward progress to avoid infinite loops on very large events.
+        if overlap_start <= i:
+            overlap_start = i + 1
+        i = overlap_start
+
+    return [_build_chunk(chunk_items) for chunk_items in chunks_items]
+
+
+async def _chunk_events_hybrid(
+    events: list[dict[str, object]],
+    *,
+    embedding_service: EmbeddingService,
+    max_tokens: int,
+    overlap_tokens: int,
+    semantic_similarity_threshold: float,
+    semantic_min_tokens: int,
+) -> list[dict[str, object]]:
+    """Structural + semantic chunking.
+
+    Structural rules:
+    - Never split inside an event
+    - Enforce max token budget per chunk
+
+    Semantic rule:
+    - If adjacent event embeddings have low similarity and current chunk has
+      enough tokens, start a new chunk.
+    """
+    max_tokens = max(1, max_tokens)
+    overlap_tokens = max(0, min(overlap_tokens, max_tokens - 1))
+    semantic_min_tokens = max(1, min(semantic_min_tokens, max_tokens))
+
+    prepared_events = _prepare_events(events)
+    if not prepared_events:
+        return []
+
+    event_texts = [str(item["event"].get("text", "")) for item in prepared_events]
+    event_embeddings = await embedding_service.embed(event_texts)
+
+    chunks_items: list[list[dict[str, object]]] = []
+    current_items: list[dict[str, object]] = []
+    current_tokens = 0
+
+    for idx, item in enumerate(prepared_events):
+        item_tokens = int(item["token_count"])
+
+        # Hard structural split by max token budget.
+        if current_items and current_tokens + item_tokens > max_tokens:
+            chunks_items.append(current_items)
+            current_items = []
+            current_tokens = 0
+
+        # Soft semantic split, but only if we already have enough context.
+        if (
+            current_items
+            and current_tokens >= semantic_min_tokens
+            and idx > 0
+            and idx < len(event_embeddings)
+        ):
+            similarity = _cosine_similarity(
+                event_embeddings[idx - 1],
+                event_embeddings[idx],
+            )
+            if similarity < semantic_similarity_threshold:
+                chunks_items.append(current_items)
+                current_items = []
+                current_tokens = 0
+
+        current_items.append(item)
+        current_tokens += item_tokens
+
+    if current_items:
+        chunks_items.append(current_items)
+
+    if overlap_tokens > 0:
+        chunks_items = _apply_overlap(chunks_items, overlap_tokens)
+
+    return [_build_chunk(chunk_items) for chunk_items in chunks_items]
+
+
+def _prepare_events(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    prepared_events: list[dict[str, object]] = []
     for event in events:
         line = json.dumps(
             {
@@ -173,17 +337,78 @@ def _chunk_events(
                 "text": event.get("text"),
             }
         )
-        if current_length + len(line) + 1 > max_chars and current_lines:
-            chunks.append({"text": "\n".join(current_lines), "events": current_events})
-            current_lines = []
-            current_events = []
-            current_length = 0
-        current_lines.append(line)
-        current_events.append(event)
-        current_length += len(line) + 1
-    if current_lines:
-        chunks.append({"text": "\n".join(current_lines), "events": current_events})
-    return chunks
+        prepared_events.append(
+            {
+                "line": line,
+                "event": event,
+                "token_count": _estimate_tokens(line),
+            }
+        )
+    return prepared_events
+
+
+def _apply_overlap(
+    chunks_items: list[list[dict[str, object]]], overlap_tokens: int
+) -> list[list[dict[str, object]]]:
+    if not chunks_items:
+        return chunks_items
+
+    with_overlap: list[list[dict[str, object]]] = [chunks_items[0]]
+    for i in range(1, len(chunks_items)):
+        prev_chunk = chunks_items[i - 1]
+        current_chunk = list(chunks_items[i])
+
+        overlap_items: list[dict[str, object]] = []
+        token_sum = 0
+        k = len(prev_chunk) - 1
+        while k >= 0 and token_sum < overlap_tokens:
+            overlap_items.append(prev_chunk[k])
+            token_sum += int(prev_chunk[k]["token_count"])
+            k -= 1
+        overlap_items.reverse()
+
+        existing_ids = {item["event"].get("event_id") for item in current_chunk}
+        merged = [item for item in overlap_items if item["event"].get("event_id") not in existing_ids]
+        merged.extend(current_chunk)
+        with_overlap.append(merged)
+
+    return with_overlap
+
+
+def _build_chunk(items: list[dict[str, object]]) -> dict[str, object]:
+    current_events = [dict(item["event"]) for item in items]
+    current_lines = [str(item["line"]) for item in items]
+    token_count = sum(int(item["token_count"]) for item in items)
+    return {
+        "text": "\n".join(current_lines),
+        "events": current_events,
+        "token_count": token_count,
+        "start_event_id": current_events[0].get("event_id") if current_events else None,
+        "end_event_id": current_events[-1].get("event_id") if current_events else None,
+    }
+
+
+def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 1.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    if norm_a == 0 or norm_b == 0:
+        return 1.0
+    return dot / (norm_a * norm_b)
+
+
+def _estimate_tokens(text: str) -> int:
+    # Lightweight approximation for chunking decisions:
+    # - ~4 chars/token heuristic
+    # - with a floor using whitespace-based tokenization
+    stripped = text.strip()
+    if not stripped:
+        return 1
+    heuristic_tokens = math.ceil(len(stripped) / 4)
+    whitespace_tokens = len(re.findall(r"\S+", stripped))
+    return max(1, heuristic_tokens, whitespace_tokens)
 
 
 def _event_dedupe_key(event: dict[str, object]) -> str:

@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_env: str = Field(default="local", alias="APP_ENV")
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
-    api_port: int = Field(default=8080, alias="API_PORT")
+    api_port: int = Field(default=5001, alias="API_PORT")
     postgres_dsn: str = Field(
         default="postgresql+asyncpg://adk:adk@localhost:5432/adk",
         alias="POSTGRES_DSN",
@@ -47,6 +47,19 @@ class Settings(BaseSettings):
         default=0.75, alias="VECTOR_SCORE_THRESHOLD"
     )
     vector_top_k: int = Field(default=8, alias="VECTOR_TOP_K")
+    memory_chunk_mode: str = Field(default="hybrid", alias="MEMORY_CHUNK_MODE")
+    memory_chunk_max_tokens: int = Field(
+        default=600, alias="MEMORY_CHUNK_MAX_TOKENS"
+    )
+    memory_chunk_overlap_tokens: int = Field(
+        default=100, alias="MEMORY_CHUNK_OVERLAP_TOKENS"
+    )
+    memory_chunk_semantic_similarity_threshold: float = Field(
+        default=0.78, alias="MEMORY_CHUNK_SEMANTIC_SIMILARITY_THRESHOLD"
+    )
+    memory_chunk_semantic_min_tokens: int = Field(
+        default=250, alias="MEMORY_CHUNK_SEMANTIC_MIN_TOKENS"
+    )
     temp_state_prefix: str = Field(default="temp:", alias="TEMP_STATE_PREFIX")
 
 
