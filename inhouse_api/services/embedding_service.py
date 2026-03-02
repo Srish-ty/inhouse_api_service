@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import requests
 from typing import Iterable
 
 from ..core.config import get_settings
@@ -20,16 +21,39 @@ class EmbeddingService:
         self._dim = settings.embedding_dim
 
     async def embed(self, texts: Iterable[str]) -> list[list[float]]:
-        if provider == 'azure_openai':
+        if self._provider == 'azure_openai':
             return await self._embed_azure_openai(list(texts))
         if self._provider == "openai":
             return await self._embed_openai(list(texts))
         return [self._embed_local(text) for text in texts]
     
     async def _embed_azure_openai(self, texts: list[str]) -> list[list[float]]:
-        # code here
-        # from the file given
-        return 0
+        settings = get_settings()
+
+        azure_endpoint = settings.azure_openai_endpoint
+        azure_key = settings.azure_openai_key
+
+        if not azure_endpoint or not azure_key:
+            print("Error: Azure OpenAI credentials not found in settings")
+            return [[0.0] * self._dim for _ in texts]
+        deployment_name = settings.azure_openai_embedding_model
+        url = f"{azure_endpoint}openai/deployments/{deployment_name}/embeddings?api-version={settings.azure_openai_api_version}"
+
+        headers = {
+            'api-key': azure_key,
+            'Content-Type': 'application/json'
+        }
+        payload = {
+            "input": texts
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            return [item['embedding'] for item in data['data']]
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling Azure OpenAI API: {e}")
+            return [[0.0] * self._dim for _ in texts]
 
     def _embed_local(self, text: str) -> list[float]:
         digest = hashlib.sha256(text.encode("utf-8")).digest()
