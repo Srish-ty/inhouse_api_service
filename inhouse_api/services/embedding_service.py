@@ -56,9 +56,13 @@ class EmbeddingService:
             return [[0.0] * self._dim for _ in texts]
 
     def _embed_local(self, text: str) -> list[float]:
-        digest = hashlib.sha256(text.encode("utf-8")).digest()
-        random.seed(digest)
-        return [random.uniform(-1, 1) for _ in range(self._dim)]
+        # digest = hashlib.sha256(text.encode("utf-8")).digest()
+        # random.seed(digest)
+        # return [random.uniform(-1, 1) for _ in range(self._dim)]
+        from langchain.embeddings import HuggingFaceEmbeddings
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        embedder = HuggingFaceEmbeddings(model_name=model_name)
+        return embedder.embed_query(text)
 
     async def _embed_openai(self, texts: list[str]) -> list[list[float]]:
         try:
