@@ -20,9 +20,16 @@ class EmbeddingService:
         self._dim = settings.embedding_dim
 
     async def embed(self, texts: Iterable[str]) -> list[list[float]]:
+        if provider == 'azure_openai':
+            return await self._embed_azure_openai(list(texts))
         if self._provider == "openai":
             return await self._embed_openai(list(texts))
         return [self._embed_local(text) for text in texts]
+    
+    async def _embed_azure_openai(self, texts: list[str]) -> list[list[float]]:
+        # code here
+        # from the file given
+        return 0
 
     def _embed_local(self, text: str) -> list[float]:
         digest = hashlib.sha256(text.encode("utf-8")).digest()

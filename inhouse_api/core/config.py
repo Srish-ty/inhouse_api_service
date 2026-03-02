@@ -20,9 +20,24 @@ class Settings(BaseSettings):
     mongo_profile_collection: str = Field(
         default="user_profiles", alias="MONGO_PROFILE_COLLECTION"
     )
-    embedding_provider: str = Field(default="local", alias="EMBEDDING_PROVIDER")
+    embedding_provider: str = Field(default="azure_openai", alias="EMBEDDING_PROVIDER")
     embedding_dim: int = Field(default=384, alias="EMBEDDING_DIM")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+
+    azure_openai_endpoint: str | None = Field(
+        default=None, alias="AZURE_OPENAI_ENDPOINT"
+    )
+    azure_openai_key: str | None = Field(default=None, alias="AZURE_OPENAI_KEY")
+    azure_openai_embedding_model: str = Field(
+        default="text-embedding-ada-002", alias="AZURE_OPENAI_EMBEDDING_MODEL"
+    )
+    azure_openai_api_version: str = Field(
+        default="2024-06-01", alias="AZURE_OPENAI_API_VERSION"
+    )
+
+    api_endpoint: str = Field(default="https://biuprodapi.piramalfinance.com/open-ai/invocations", alias="API_ENDPOINT")
+    api_key: str | None = Field(default=None, alias="API_KEY")
+
     vertex_project: str | None = Field(default=None, alias="VERTEX_PROJECT")
     vertex_location: str | None = Field(default=None, alias="VERTEX_LOCATION")
     vector_index_name: str = Field(
