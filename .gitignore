@@ -3,6 +3,7 @@
 .env
 *.env
 
-#cache
-./__pycache__
-./core/__pycache__
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*$py.class
