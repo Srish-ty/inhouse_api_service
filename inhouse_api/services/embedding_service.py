@@ -21,8 +21,9 @@ class EmbeddingService:
         self._provider = settings.embedding_provider
         self._dim = settings.embedding_dim
 
-        model_name = "sentence-transformers/all-MiniLM-L6-v2"
-        self._embedder = HuggingFaceEmbeddings(model_name=model_name)
+        if self._provider == "local":
+            model_name = "sentence-transformers/all-MiniLM-L6-v2"
+            self._embedder = HuggingFaceEmbeddings(model_name=model_name)
 
     async def embed(self, texts: Iterable[str]) -> list[list[float]]:
         if self._provider == 'azure_openai':
