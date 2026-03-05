@@ -49,13 +49,10 @@ class MemoryService:
         if not structured_events:
             return 0
 
-        chunks = await _chunk_events_hybrid(
+        chunks = _chunk_events_hybrid(
             structured_events,
-            embedding_service=self._embedding_service,
             max_tokens=self._settings.memory_chunk_max_tokens,
             overlap_tokens=self._settings.memory_chunk_overlap_tokens,
-            semantic_similarity_threshold=self._settings.memory_chunk_semantic_similarity_threshold,
-            semantic_min_tokens=self._settings.memory_chunk_semantic_min_tokens,
         )
         embeddings = await self._embedding_service.embed([chunk["text"] for chunk in chunks])
         collection = get_memory_collection()
@@ -171,64 +168,33 @@ class MemoryService:
 
 
 
-async def _chunk_events_hybrid(
+# hybrid chunking function
+def _chunk_events_hybrid(
     events: list[dict[str, object]],
     *,
-    embedding_service: EmbeddingService,
     max_tokens: int,
     overlap_tokens: int,
-    semantic_similarity_threshold: float,
-    semantic_min_tokens: int,
 ) -> list[dict[str, object]]:
-    """Structural + semantic chunking.
-
-    Structural rules:
-    - Never split inside an event
-    - Enforce max token budget per chunk
-
-    Semantic rule:
-    - If adjacent event embeddings have low similarity and current chunk has
-      enough tokens, start a new chunk.
-    """
     max_tokens = max(1, max_tokens)
     overlap_tokens = max(0, min(overlap_tokens, max_tokens - 1))
-    semantic_min_tokens = max(1, min(semantic_min_tokens, max_tokens))
-
-    prepared_events = _prepare_events(events)
+    prepared_events = _prepare_events(
+        events=events,
+        max_tokens=max_tokens,
+    )
     if not prepared_events:
         return []
 
-    event_texts = [str(item["event"].get("text", "")) for item in prepared_events]
-    event_embeddings = await embedding_service.embed(event_texts)
- 
     chunks_items: list[list[dict[str, object]]] = []
     current_items: list[dict[str, object]] = []
     current_tokens = 0
 
-    for idx, item in enumerate(prepared_events):
+    for item in prepared_events:
         item_tokens = int(item["token_count"])
 
-        # Hard structural split by max token budget.
         if current_items and current_tokens + item_tokens > max_tokens:
             chunks_items.append(current_items)
             current_items = []
             current_tokens = 0
-
-        # Soft semantic split, but only if we already have enough context.
-        if (
-            current_items
-            and current_tokens >= semantic_min_tokens
-            and idx > 0
-            and idx < len(event_embeddings)
-        ):
-            similarity = _cosine_similarity(
-                event_embeddings[idx - 1],
-                event_embeddings[idx],
-            )
-            if similarity < semantic_similarity_threshold:
-                chunks_items.append(current_items)
-                current_items = []
-                current_tokens = 0
 
         current_items.append(item)
         current_tokens += item_tokens
@@ -242,24 +208,191 @@ async def _chunk_events_hybrid(
     return [_build_chunk(chunk_items) for chunk_items in chunks_items]
 
 
-def _prepare_events(events: list[dict[str, object]]) -> list[dict[str, object]]:
+def _prepare_events(
+    events: list[dict[str, object]],
+    *,
+    max_tokens: int,
+) -> list[dict[str, object]]:
     prepared_events: list[dict[str, object]] = []
-    for event in events:
-        line = json.dumps(
-            {
-                "author": event.get("author"),
-                "timestamp": event.get("timestamp"),
-                "text": event.get("text"),
-            }
+    for source_idx, event in enumerate(events):
+        event_text = str(event.get("text", "") or "")
+        if not event_text.strip():
+            continue
+
+        fragments = _split_event_text_structurally(
+            text=event_text,
+            max_tokens=max_tokens,
         )
-        prepared_events.append(
-            {
-                "line": line,
-                "event": event,
-                "token_count": _estimate_tokens(line),
-            }
-        )
+        if not fragments:
+            fragments = [event_text]
+
+        base_event_id = event.get("event_id")
+        for fragment_idx, fragment in enumerate(fragments):
+            text_fragment = fragment.strip()
+            if not text_fragment:
+                continue
+            effective_event = dict(event)
+            effective_event["text"] = text_fragment
+            if len(fragments) > 1:
+                effective_event["parent_event_id"] = base_event_id
+                if base_event_id:
+                    effective_event["event_id"] = (
+                        f"{base_event_id}::seg:{fragment_idx}"
+                    )
+                else:
+                    effective_event["event_id"] = (
+                        f"event:{source_idx}::seg:{fragment_idx}"
+                    )
+                effective_event["event_fragment_index"] = fragment_idx
+
+            line = json.dumps(
+                {
+                    "author": effective_event.get("author"),
+                    "timestamp": effective_event.get("timestamp"),
+                    "text": effective_event.get("text"),
+                }
+            )
+            prepared_events.append(
+                {
+                    "line": line,
+                    "event": effective_event,
+                    "token_count": _estimate_tokens(text_fragment),
+                }
+            )
     return prepared_events
+
+
+def _split_event_text_structurally(
+    *,
+    text: str,
+    max_tokens: int,
+) -> list[str]:
+    stripped = text.strip()
+    print(f"Attempting to structurally split event text: '{stripped[:1000]}' with estimated tokens: {_estimate_tokens(stripped)} and max_tokens: {max_tokens}")
+    if not stripped:
+        return []
+    if _estimate_tokens(stripped) <= max_tokens:
+        return [stripped]
+
+    split_with_llama = _split_text_with_llamaindex(
+        text=stripped,
+        max_tokens=max_tokens,
+    )
+    if split_with_llama:
+        print(
+            f"Successfully split event text into {len(split_with_llama)} chunk(s) using LlamaIndex-based semantic splitting."
+        )
+        return split_with_llama
+    else:
+        print(
+            "LlamaIndex-based splitting failed or produced no chunks, "
+            "falling back to heuristic token-based splitting."
+        )
+
+    return _split_text_by_token_budget(stripped, max_tokens)
+
+
+_LLAMA_SEMANTIC_EMBED_MODEL = None
+
+
+def _get_llama_semantic_embed_model():
+    global _LLAMA_SEMANTIC_EMBED_MODEL
+    if _LLAMA_SEMANTIC_EMBED_MODEL is None:
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+        _LLAMA_SEMANTIC_EMBED_MODEL = HuggingFaceEmbedding(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+    return _LLAMA_SEMANTIC_EMBED_MODEL
+
+
+def _split_text_with_llamaindex(
+    *,
+    text: str,
+    max_tokens: int,
+) -> list[str]:
+    try:
+        from llama_index.core import Document
+        from llama_index.core.node_parser import SemanticSplitterNodeParser
+        from llama_index.core.node_parser import SentenceSplitter
+        from llama_index.core.node_parser import TokenTextSplitter
+    except Exception:
+        return []
+
+    chunks: list[str] = []
+    try:
+        semantic_splitter = SemanticSplitterNodeParser.from_defaults(
+            embed_model=_get_llama_semantic_embed_model(),
+        )
+        nodes = semantic_splitter.get_nodes_from_documents([Document(text=text)])
+        for node in nodes:
+            content = str(getattr(node, "text", "") or "").strip()
+            if content:
+                chunks.append(content)
+    except Exception:
+        chunks = []
+
+    if not chunks:
+        chunks = SentenceSplitter(
+            chunk_size=max_tokens,
+            chunk_overlap=0,
+        ).split_text(text)
+
+    if not chunks:
+        return []
+
+    token_splitter = TokenTextSplitter(
+        chunk_size=max_tokens,
+        chunk_overlap=0,
+    )
+    bounded: list[str] = []
+    for chunk in chunks:
+        text_chunk = str(chunk).strip()
+        if not text_chunk:
+            continue
+        if _estimate_tokens(text_chunk) <= max_tokens:
+            bounded.append(text_chunk)
+            continue
+        bounded.extend(
+            part.strip()
+            for part in token_splitter.split_text(text_chunk)
+            if part and part.strip()
+        )
+    return bounded
+
+
+def _split_text_by_token_budget(text: str, max_tokens: int) -> list[str]:
+    words = re.findall(r"\S+\s*", text)
+    if not words:
+        return [text]
+
+    chunks: list[str] = []
+    current_words: list[str] = []
+    current_tokens = 0
+    for word in words:
+        token_est = _estimate_tokens(word)
+        if token_est > max_tokens:
+            if current_words:
+                chunks.append("".join(current_words).strip())
+                current_words = []
+                current_tokens = 0
+            chunks.extend(_split_text_by_char_budget(word, max_tokens))
+            continue
+        if current_words and current_tokens + token_est > max_tokens:
+            chunks.append("".join(current_words).strip())
+            current_words = []
+            current_tokens = 0
+        current_words.append(word)
+        current_tokens += token_est
+    if current_words:
+        chunks.append("".join(current_words).strip())
+    return [chunk for chunk in chunks if chunk]
+
+
+def _split_text_by_char_budget(text: str, max_tokens: int) -> list[str]:
+    max_chars = max(1, max_tokens * 4)
+    parts = [text[i : i + max_chars].strip() for i in range(0, len(text), max_chars)]
+    return [part for part in parts if part]
 
 
 def _apply_overlap(
@@ -282,8 +415,12 @@ def _apply_overlap(
             k -= 1
         overlap_items.reverse()
 
-        existing_ids = {item["event"].get("event_id") for item in current_chunk}
-        merged = [item for item in overlap_items if item["event"].get("event_id") not in existing_ids]
+        existing_keys = {_event_dedupe_key(item["event"]) for item in current_chunk}
+        merged = [
+            item
+            for item in overlap_items
+            if _event_dedupe_key(item["event"]) not in existing_keys
+        ]
         merged.extend(current_chunk)
         with_overlap.append(merged)
 
@@ -301,17 +438,6 @@ def _build_chunk(items: list[dict[str, object]]) -> dict[str, object]:
         "start_event_id": current_events[0].get("event_id") if current_events else None,
         "end_event_id": current_events[-1].get("event_id") if current_events else None,
     }
-
-
-def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
-        return 1.0
-    dot = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
-    norm_a = math.sqrt(sum(a * a for a in vec_a))
-    norm_b = math.sqrt(sum(b * b for b in vec_b))
-    if norm_a == 0 or norm_b == 0:
-        return 1.0
-    return dot / (norm_a * norm_b)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -339,23 +465,23 @@ def _merge_event_lists(
     event_lists = list(event_lists)
     while event_lists:
         current = event_lists.pop(0)
-        current_ts = {event.get("timestamp") for event in current}
+        current_keys = {_event_dedupe_key(event) for event in current}
         merge_found = True
 
         while merge_found:
             merge_found = False
             remaining = []
             for other in event_lists:
-                other_ts = {event.get("timestamp") for event in other}
-                if current_ts & other_ts:
+                other_keys = {_event_dedupe_key(event) for event in other}
+                if current_keys & other_keys:
                     new_events = [
                         event
                         for event in other
-                        if event.get("timestamp") not in current_ts
+                        if _event_dedupe_key(event) not in current_keys
                     ]
                     current.extend(new_events)
-                    current_ts.update(
-                        event.get("timestamp") for event in new_events
+                    current_keys.update(
+                        _event_dedupe_key(event) for event in new_events
                     )
                     merge_found = True
                 else:

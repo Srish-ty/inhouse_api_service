@@ -53,12 +53,6 @@ class Settings(BaseSettings):
     memory_chunk_overlap_tokens: int = Field(
         default=100, alias="MEMORY_CHUNK_OVERLAP_TOKENS"
     )
-    memory_chunk_semantic_similarity_threshold: float = Field(
-        default=0.78, alias="MEMORY_CHUNK_SEMANTIC_SIMILARITY_THRESHOLD"
-    )
-    memory_chunk_semantic_min_tokens: int = Field(
-        default=250, alias="MEMORY_CHUNK_SEMANTIC_MIN_TOKENS"
-    )
     temp_state_prefix: str = Field(default="temp:", alias="TEMP_STATE_PREFIX")
 
 

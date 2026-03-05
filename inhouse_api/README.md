@@ -37,8 +37,7 @@ See `.env.example` for a full list. Key ones:
 - `MONGO_VECTOR_INDEX` - Atlas Vector Search index name
 - `EMBEDDING_PROVIDER` (`local`, `openai`, or `azure_openai`)
 - `EMBEDDING_DIM` - must match your embedding model output dimension
-- `MEMORY_CHUNK_MAX_TOKENS` / `MEMORY_CHUNK_OVERLAP_TOKENS` - token-based chunking knobs
-- `MEMORY_CHUNK_SEMANTIC_SIMILARITY_THRESHOLD` / `MEMORY_CHUNK_SEMANTIC_MIN_TOKENS` - hybrid chunking controls
+- `MEMORY_CHUNK_MAX_TOKENS` / `MEMORY_CHUNK_OVERLAP_TOKENS`
 
 > Note: `$vectorSearch` is only available in MongoDB Atlas. For local MongoDB,
 > searches will use a case-insensitive regex match on the stored text instead.
@@ -95,24 +94,20 @@ Vector index (Atlas Vector Search):
 
 ## Memory ingestion chunking behavior
 
-`/v1/memory/ingest-sess` supports two modes:
+`/v1/memory/ingest-sess` uses a hybrid pipeline:
 
-- `token`: event-boundary-aware token chunking with overlap
-- `hybrid` (default): structural + semantic chunking
-
-Hybrid mode does:
-
-- preserves event boundaries (never splits inside an event payload)
-- enforces max token budget (`MEMORY_CHUNK_MAX_TOKENS`)
-- computes adjacent event semantic similarity using event embeddings
-- if similarity drops below `MEMORY_CHUNK_SEMANTIC_SIMILARITY_THRESHOLD` and
-  chunk already has at least `MEMORY_CHUNK_SEMANTIC_MIN_TOKENS`, starts a new chunk
-- applies overlap (`MEMORY_CHUNK_OVERLAP_TOKENS`) using whole events
+- preserves source event boundaries first (structural truth)
+- for oversized single events, tries LlamaIndex `SemanticSplitterNodeParser`
+- if semantic splitter is unavailable/fails, uses `SentenceSplitter`
+- always enforces max token budget with `TokenTextSplitter` (or internal fallback)
+- applies overlap (`MEMORY_CHUNK_OVERLAP_TOKENS`) using whole prepared events
 
 This improves topical cohesion vs fixed-size only chunking.
 
 > Note: current token counting is an approximation (`max(chars/4, whitespace tokens)`),
 > not model-native tokenizer counting.
+> If `llama_index` is not installed, structural splitting gracefully falls back to
+> internal token-budget splitting.
 
 ## Choosing vector dimension
 
