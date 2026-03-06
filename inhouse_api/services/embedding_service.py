@@ -12,7 +12,7 @@ class EmbeddingService:
     If provider is "local", # generate deterministic pseudo-embeddings locally.
     generates embeddings using HuggingFace's all-MiniLM-L6-v2 model.
     If provider is "azure_openai", expects AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_EMBEDDING_MODEL, and AZURE_OPENAI_API_VERSION
-    If provider is "openai", expects OPENAI_API_KEY and uses text-embedding-3-small.
+    If provider is "openai", expects OPENAI_API_KEY and uses text-embedding-3-large.
     """
 
     def __init__(self) -> None:
@@ -26,9 +26,11 @@ class EmbeddingService:
 
     async def embed(self, texts: Iterable[str]) -> list[list[float]]:
         if self._provider == 'azure_openai':
+            print(f"Using Azure OpenAI for embedding with model: {get_settings().azure_openai_embedding_model}")
             return await self._embed_azure_openai(list(texts))
         if self._provider == "openai":
             return await self._embed_openai(list(texts))
+        print("Using local embedding provider (HuggingFace all-MiniLM-L6-v2).")
         return [self._embed_local(text) for text in texts]
     
     async def _embed_azure_openai(self, texts: list[str]) -> list[list[float]]:
@@ -55,6 +57,7 @@ class EmbeddingService:
                 response = await async_client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 data = response.json()
+                print(f"Received embedding response from Azure OpenAI: {data['data'][:1][0]['embedding'][:5]}...")  # Log only the first item for brevity
                 return [item['embedding'] for item in data['data']]
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code if exc.response is not None else "unknown"
@@ -110,7 +113,7 @@ class EmbeddingService:
 
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         response = await client.embeddings.create(
-            model="text-embedding-3-small",
+            model="text-embedding-3-large",
             input=texts,
         )
         return [item.embedding for item in response.data]

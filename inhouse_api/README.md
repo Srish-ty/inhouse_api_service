@@ -119,7 +119,7 @@ Vector index (Atlas Vector Search):
 ```json
 {
   "fields": [
-    {"type": "vector", "path": "embedding", "numDimensions": 1536, "similarity": "cosine"},
+    {"type": "vector", "path": "embedding", "numDimensions": 3072, "similarity": "cosine"},
     {"type": "filter", "path": "app_name"},
     {"type": "filter", "path": "user_id"}
   ]

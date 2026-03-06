@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     app_env: str = Field(default="local", alias="APP_ENV")
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=5001, alias="API_PORT")
@@ -21,7 +24,7 @@ class Settings(BaseSettings):
         default="user_profiles", alias="MONGO_PROFILE_COLLECTION"
     )
     embedding_provider: str = Field(default="azure_openai", alias="EMBEDDING_PROVIDER")
-    embedding_dim: int = Field(default=1536, alias="EMBEDDING_DIM")
+    embedding_dim: int = Field(default=3072, alias="EMBEDDING_DIM")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
 
     azure_openai_endpoint: str | None = Field(
@@ -29,7 +32,7 @@ class Settings(BaseSettings):
     )
     azure_openai_key: str | None = Field(default=None, alias="AZURE_OPENAI_KEY")
     azure_openai_embedding_model: str = Field(
-        default="text-embedding-3-small", alias="AZURE_OPENAI_EMBEDDING_MODEL"
+        default="text-embedding-3-large", alias="AZURE_OPENAI_EMBEDDING_MODEL"
     )
     azure_openai_api_version: str = Field(
         default="2024-06-01", alias="AZURE_OPENAI_API_VERSION"
@@ -44,7 +47,7 @@ class Settings(BaseSettings):
         default="memory_vector_index", alias="MONGO_VECTOR_INDEX"
     )
     vector_score_threshold: float = Field(
-        default=0.75, alias="VECTOR_SCORE_THRESHOLD"
+        default=0.45, alias="VECTOR_SCORE_THRESHOLD"
     )
     vector_top_k: int = Field(default=8, alias="VECTOR_TOP_K")
     memory_chunk_max_tokens: int = Field(

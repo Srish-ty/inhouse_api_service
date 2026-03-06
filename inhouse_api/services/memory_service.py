@@ -174,8 +174,10 @@ class MemoryService:
     async def search_memory(
         self, *, app_name: str, user_id: str, query: str
     ) -> list[MemoryEntrySchema]:
+        used_vector_search = False
         embeddings = await self._embedding_service.embed([query])
         collection = get_memory_collection()
+        print(f"Performing vector search for query: '{query}' with embedding: {embeddings[0][:5]}...")
         try:
             pipeline = await create_memory_vector_pipeline(
                 query_embedding=embeddings[0],
@@ -183,9 +185,11 @@ class MemoryService:
                 user_id=user_id,
                 top_k=self._settings.vector_top_k,
             )
+            used_vector_search = True
             cursor = collection.aggregate(pipeline)
-            print("Yay the vector search pipeline executed !!!")
+            print("The vector search pipeline executed !")
             results = await self._collect_results(cursor)
+            print(f"docs returned from vector search cursor: {len(results)}")
         except OperationFailure as exc:
             if "vectorSearch" not in str(exc):
                 raise
@@ -195,7 +199,19 @@ class MemoryService:
                 user_id=user_id,
                 query=query,
             )
-            print("!! Error: !! "+ str(exc)+"Falling back to text search.")
+            print("Error: "+ str(exc)+" going to regex search.")
+
+        if used_vector_search and not results:
+            print(
+                "Vector search returned 0 results after threshold/filtering; "
+                "\nfalling back to text search."
+            )
+            results = await self._fallback_text_search(
+                collection=collection,
+                app_name=app_name,
+                user_id=user_id,
+                query=query,
+            )
 
         session_events_map: OrderedDict[str, list[list[dict[str, object]]]] = (
             OrderedDict()
@@ -237,6 +253,7 @@ class MemoryService:
     async def _collect_results(self, cursor) -> list[dict[str, object]]:
         results: list[dict[str, object]] = []
         async for doc in cursor:
+            print(f"Raw vector search result doc: {doc.get('chunk_id')} with score: {doc.get('score')}")
             score = doc.get("score")
             if score is not None and score < self._settings.vector_score_threshold:
                 continue
