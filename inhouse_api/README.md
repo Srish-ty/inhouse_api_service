@@ -52,7 +52,6 @@ See `.env.example` for a full list. Key ones:
 - `POST   /v1/sessions/{session_id}/events` (query params: `app_name`, `user_id`)
 
 ### Memory
-- `POST /v1/memory/ingest-sess`
 - `POST /v1/memory/sync-session`
 - `GET  /v1/memory/search?app_name=&user_id=&query=`
 
@@ -93,8 +92,6 @@ This enables idempotent re-ingestion via MongoDB upserts:
 - new chunks are inserted
 - stale chunks (no longer present in the latest chunking output) are deleted when pruning is enabled
 
-`POST /v1/memory/ingest-sess` keeps backward-compatible behavior and returns only newly inserted chunk count.
-
 Use `POST /v1/memory/sync-session` for full sync stats with payload:
 
 ```json
@@ -122,7 +119,7 @@ Vector index (Atlas Vector Search):
 ```json
 {
   "fields": [
-    {"type": "vector", "path": "embedding", "numDimensions": 384, "similarity": "cosine"},
+    {"type": "vector", "path": "embedding", "numDimensions": 1536, "similarity": "cosine"},
     {"type": "filter", "path": "app_name"},
     {"type": "filter", "path": "user_id"}
   ]
@@ -131,7 +128,7 @@ Vector index (Atlas Vector Search):
 
 ## Memory ingestion chunking behavior
 
-`/v1/memory/ingest-sess` uses a hybrid pipeline:
+`/v1/memory/sync-session` uses a hybrid pipeline:
 
 - preserves source event boundaries first (structural truth)
 - for oversized single events, tries LlamaIndex `SemanticSplitterNodeParser`

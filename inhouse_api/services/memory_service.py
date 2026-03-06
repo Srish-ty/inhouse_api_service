@@ -24,18 +24,6 @@ class MemoryService:
         self._settings = get_settings()
         self._embedding_service = EmbeddingService()
 
-    async def ingest_session(
-        self, *, app_name: str, user_id: str, session_id: str, events: list[EventSchema]
-    ) -> int:
-        result = await self.sync_session_memory(
-            app_name=app_name,
-            user_id=user_id,
-            session_id=session_id,
-            events=events,
-            prune_stale=True,
-        )
-        return result["inserted"]
-
     async def sync_session_memory(
         self,
         *,
@@ -372,7 +360,6 @@ def _split_event_text_structurally(
     max_tokens: int,
 ) -> list[str]:
     stripped = text.strip()
-    print(f"Attempting to structurally split event text: '{stripped[:1000]}' with estimated tokens: {_estimate_tokens(stripped)} and max_tokens: {max_tokens}")
     if not stripped:
         return []
     if _estimate_tokens(stripped) <= max_tokens:

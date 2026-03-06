@@ -18,12 +18,6 @@ class MemorySearchResponse(BaseModel):
     memories: list[MemoryEntrySchema] = Field(default_factory=list)
 
 
-class MemoryIngestRequest(BaseModel):
-    app_name: str
-    user_id: str
-    session_id: str
-
-
 class MemorySyncRequest(BaseModel):
     app_name: str
     user_id: str

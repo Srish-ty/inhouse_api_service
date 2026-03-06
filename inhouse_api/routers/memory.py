@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.postgres import get_db_session
-from ..schemas.memory import MemoryIngestRequest
 from ..schemas.memory import MemorySearchResponse
 from ..schemas.memory import MemorySyncRequest
 from ..schemas.memory import MemorySyncResponse
@@ -15,29 +14,6 @@ from ..services.session_service import SessionService
 
 
 router = APIRouter(prefix="/v1/memory")
-
-
-@router.post("/ingest-sess")
-async def ingest_session(
-    payload: MemoryIngestRequest,
-    db: AsyncSession = Depends(get_db_session),
-) -> dict[str, int]:
-    session_service = SessionService(db)
-    session = await session_service.get_session(
-        app_name=payload.app_name,
-        user_id=payload.user_id,
-        session_id=payload.session_id,
-    )
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    memory_service = MemoryService()
-    inserted = await memory_service.ingest_session(
-        app_name=payload.app_name,
-        user_id=payload.user_id,
-        session_id=payload.session_id,
-        events=session.events,
-    )
-    return {"inserted": inserted}
 
 
 @router.post("/sync-session", response_model=MemorySyncResponse)

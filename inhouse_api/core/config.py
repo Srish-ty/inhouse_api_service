@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         default="user_profiles", alias="MONGO_PROFILE_COLLECTION"
     )
     embedding_provider: str = Field(default="azure_openai", alias="EMBEDDING_PROVIDER")
-    embedding_dim: int = Field(default=384, alias="EMBEDDING_DIM")
+    embedding_dim: int = Field(default=1536, alias="EMBEDDING_DIM")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
 
     azure_openai_endpoint: str | None = Field(
