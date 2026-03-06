@@ -24,6 +24,20 @@ class MemoryIngestRequest(BaseModel):
     session_id: str
 
 
+class MemorySyncRequest(BaseModel):
+    app_name: str
+    user_id: str
+    session_id: str
+    prune_stale: bool = True
+
+
+class MemorySyncResponse(BaseModel):
+    inserted: int = 0
+    updated: int = 0
+    deleted: int = 0
+    total_chunks: int = 0
+
+
 class MemoryChunkSchema(BaseModel):
     app_name: str
     user_id: str

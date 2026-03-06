@@ -33,6 +33,25 @@ def get_profile_collection() -> AsyncIOMotorCollection:
     return get_database()[settings.mongo_profile_collection]
 
 
+async def ensure_indexes() -> None:
+    """Ensure MongoDB indexes required by API flows exist."""
+    memory_collection = get_memory_collection()
+    await memory_collection.create_index(
+        [
+            ("app_name", 1),
+            ("user_id", 1),
+            ("session_id", 1),
+            ("chunk_id", 1),
+        ],
+        unique=True,
+        name="uniq_memory_chunk_per_session",
+    )
+    await memory_collection.create_index(
+        [("app_name", 1), ("user_id", 1), ("session_id", 1)],
+        name="idx_memory_session_scope",
+    )
+
+
 async def create_memory_vector_pipeline(
     *, query_embedding: list[float], app_name: str, user_id: str, top_k: int
 ) -> list[dict[str, Any]]:

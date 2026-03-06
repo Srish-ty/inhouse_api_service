@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from .core.config import get_settings
+from .db.mongo import ensure_indexes
 from .routers import events
 from .routers import health
 from .routers import memory
@@ -12,6 +13,11 @@ from .routers import sessions
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="Inhouse ADK API", debug=settings.app_env != "prod")
+
+    @app.on_event("startup")
+    async def _on_startup() -> None:
+        await ensure_indexes()
+
     app.include_router(health.router)
     app.include_router(sessions.router)
     app.include_router(events.router)

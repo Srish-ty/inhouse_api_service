@@ -53,6 +53,7 @@ See `.env.example` for a full list. Key ones:
 
 ### Memory
 - `POST /v1/memory/ingest-sess`
+- `POST /v1/memory/sync-session`
 - `GET  /v1/memory/search?app_name=&user_id=&query=`
 
 ### Health
@@ -68,7 +69,7 @@ Document schema:
   "app_name": "my-app",
   "user_id": "user-123",
   "session_id": "sess-456",
-  "chunk_id": "chunk-uuid",
+  "chunk_id": "deterministic-hash",
   "chunk_index": 0,
   "token_count": 512,
   "start_event_id": "evt-001",
@@ -77,6 +78,42 @@ Document schema:
   "events": [{"author": "user", "timestamp": 123, "text": "hi"}],
   "embedding": [0.1, 0.2],
   "created_at": "2026-02-05T12:00:00Z"
+}
+```
+
+### Deterministic chunk IDs + upsert behavior
+
+Memory ingestion now uses deterministic `chunk_id` values derived from:
+
+`app_name | user_id | session_id | chunk_index`
+
+This enables idempotent re-ingestion via MongoDB upserts:
+
+- existing chunks are updated in-place (no duplicate rows)
+- new chunks are inserted
+- stale chunks (no longer present in the latest chunking output) are deleted when pruning is enabled
+
+`POST /v1/memory/ingest-sess` keeps backward-compatible behavior and returns only newly inserted chunk count.
+
+Use `POST /v1/memory/sync-session` for full sync stats with payload:
+
+```json
+{
+  "app_name": "my-app",
+  "user_id": "user-123",
+  "session_id": "sess-456",
+  "prune_stale": true
+}
+```
+
+Response:
+
+```json
+{
+  "inserted": 1,
+  "updated": 3,
+  "deleted": 1,
+  "total_chunks": 4
 }
 ```
 

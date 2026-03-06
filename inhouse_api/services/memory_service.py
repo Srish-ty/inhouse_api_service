@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import datetime
+import hashlib
 import json
 import math
 import re
-import uuid
 
+from pymongo import UpdateOne
 from pymongo.errors import OperationFailure
 
 from ..core.config import get_settings
@@ -26,6 +27,24 @@ class MemoryService:
     async def ingest_session(
         self, *, app_name: str, user_id: str, session_id: str, events: list[EventSchema]
     ) -> int:
+        result = await self.sync_session_memory(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id,
+            events=events,
+            prune_stale=True,
+        )
+        return result["inserted"]
+
+    async def sync_session_memory(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        events: list[EventSchema],
+        prune_stale: bool = True,
+    ) -> dict[str, int]:
         structured_events: list[dict[str, object]] = []
         for event in events:
             if not event.content or not event.content.parts:
@@ -46,25 +65,66 @@ class MemoryService:
             }
             structured_events.append(payload)
 
+        collection = get_memory_collection()
+
         if not structured_events:
-            return 0
+            deleted = 0
+            if prune_stale:
+                delete_result = await collection.delete_many(
+                    {
+                        "app_name": app_name,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                    }
+                )
+                deleted = int(delete_result.deleted_count)
+            return {
+                "inserted": 0,
+                "updated": 0,
+                "deleted": deleted,
+                "total_chunks": 0,
+            }
 
         chunks = _chunk_events_hybrid(
             structured_events,
             max_tokens=self._settings.memory_chunk_max_tokens,
             overlap_tokens=self._settings.memory_chunk_overlap_tokens,
         )
+
+        if not chunks:
+            deleted = 0
+            if prune_stale:
+                delete_result = await collection.delete_many(
+                    {
+                        "app_name": app_name,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                    }
+                )
+                deleted = int(delete_result.deleted_count)
+            return {
+                "inserted": 0,
+                "updated": 0,
+                "deleted": deleted,
+                "total_chunks": 0,
+            }
+
         embeddings = await self._embedding_service.embed([chunk["text"] for chunk in chunks])
-        collection = get_memory_collection()
         now = datetime.utcnow()
-        documents = []
+        documents: list[dict[str, object]] = []
         for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
+            chunk_id = _deterministic_chunk_id(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id,
+                chunk_index=idx,
+            )
             documents.append(
                 {
                     "app_name": app_name,
                     "user_id": user_id,
                     "session_id": session_id,
-                    "chunk_id": str(uuid.uuid4()),
+                    "chunk_id": chunk_id,
                     "chunk_index": idx,
                     "token_count": chunk["token_count"],
                     "start_event_id": chunk.get("start_event_id"),
@@ -72,12 +132,56 @@ class MemoryService:
                     "text": chunk["text"],
                     "events": chunk["events"],
                     "embedding": embedding,
-                    "created_at": now,
+                    "updated_at": now,
                 }
             )
-        if documents:
-            await collection.insert_many(documents)
-        return len(documents)
+
+        operations = [
+            UpdateOne(
+                {
+                    "app_name": doc["app_name"],
+                    "user_id": doc["user_id"],
+                    "session_id": doc["session_id"],
+                    "chunk_id": doc["chunk_id"],
+                },
+                {
+                    "$set": doc,
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+            for doc in documents
+        ]
+
+        inserted = 0
+        updated = 0
+        if operations:
+            bulk_result = await collection.bulk_write(operations, ordered=False)
+            inserted = int(getattr(bulk_result, "upserted_count", 0))
+            matched = int(getattr(bulk_result, "matched_count", 0))
+            modified = int(getattr(bulk_result, "modified_count", 0))
+            # matched includes modified and no-op updates.
+            updated = max(matched, modified)
+
+        deleted = 0
+        if prune_stale:
+            active_chunk_ids = [str(doc["chunk_id"]) for doc in documents]
+            delete_result = await collection.delete_many(
+                {
+                    "app_name": app_name,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "chunk_id": {"$nin": active_chunk_ids},
+                }
+            )
+            deleted = int(delete_result.deleted_count)
+
+        return {
+            "inserted": inserted,
+            "updated": updated,
+            "deleted": deleted,
+            "total_chunks": len(documents),
+        }
 
     async def search_memory(
         self, *, app_name: str, user_id: str, query: str
@@ -456,6 +560,13 @@ def _event_dedupe_key(event: dict[str, object]) -> str:
     if event.get("event_id"):
         return f"event:{event.get('event_id')}"
     return f"{event.get('timestamp')}::{event.get('author')}::{event.get('text')}"
+
+
+def _deterministic_chunk_id(
+    *, app_name: str, user_id: str, session_id: str, chunk_index: int
+) -> str:
+    raw = f"{app_name}|{user_id}|{session_id}|{chunk_index}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:24]
 
 
 def _merge_event_lists(
