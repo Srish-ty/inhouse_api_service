@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
     azure_openai_key: str | None = Field(default=None, alias="AZURE_OPENAI_KEY")
     azure_openai_embedding_model: str = Field(
-        default="text-embedding-ada-002", alias="AZURE_OPENAI_EMBEDDING_MODEL"
+        default="text-embedding-3-small", alias="AZURE_OPENAI_EMBEDDING_MODEL"
     )
     azure_openai_api_version: str = Field(
         default="2024-06-01", alias="AZURE_OPENAI_API_VERSION"

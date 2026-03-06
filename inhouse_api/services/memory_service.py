@@ -184,6 +184,7 @@ class MemoryService:
                 top_k=self._settings.vector_top_k,
             )
             cursor = collection.aggregate(pipeline)
+            print("Yay the vector search pipeline executed !!!")
             results = await self._collect_results(cursor)
         except OperationFailure as exc:
             if "vectorSearch" not in str(exc):
@@ -194,6 +195,7 @@ class MemoryService:
                 user_id=user_id,
                 query=query,
             )
+            print("!! Error: !! "+ str(exc)+"Falling back to text search.")
 
         session_events_map: OrderedDict[str, list[list[dict[str, object]]]] = (
             OrderedDict()
