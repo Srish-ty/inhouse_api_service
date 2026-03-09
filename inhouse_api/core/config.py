@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     mongo_profile_collection: str = Field(
         default="user_profiles", alias="MONGO_PROFILE_COLLECTION"
     )
+    mongo_persona_collection: str = Field(
+        default="user_personas", alias="MONGO_PERSONA_COLLECTION"
+    )
     embedding_provider: str = Field(default="azure_openai", alias="EMBEDDING_PROVIDER")
     embedding_dim: int = Field(default=3072, alias="EMBEDDING_DIM")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
@@ -33,6 +36,9 @@ class Settings(BaseSettings):
     azure_openai_key: str | None = Field(default=None, alias="AZURE_OPENAI_KEY")
     azure_openai_embedding_model: str = Field(
         default="text-embedding-3-large", alias="AZURE_OPENAI_EMBEDDING_MODEL"
+    )
+    azure_openai_chat_model: str = Field(
+        default="gpt-4o-mini", alias="AZURE_OPENAI_CHAT_MODEL"
     )
     azure_openai_api_version: str = Field(
         default="2024-06-01", alias="AZURE_OPENAI_API_VERSION"

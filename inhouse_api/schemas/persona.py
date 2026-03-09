@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel
+from pydantic import Field
+
+
+class PersonaAttributes(BaseModel):
+    role: str | None = None
+    job: str | None = None
+    age: str | None = None
+    experience: str | None = None
+    location: str | None = None
+    hobbies: list[str] = Field(default_factory=list)
+    user_personality: list[str] = Field(default_factory=list)
+    likes: list[str] = Field(default_factory=list)
+    dislikes: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+    curiosity_topics: list[str] = Field(default_factory=list)
+
+
+class PersonaResponse(BaseModel):
+    user_id: str
+    last_session: str | None = None
+    persona: PersonaAttributes = Field(default_factory=PersonaAttributes)
+    last_updated_at: datetime | None = None
+
+
+class PersonaUpdateFromSessionRequest(BaseModel):
+    app_name: str
+    user_id: str
+    session_id: str

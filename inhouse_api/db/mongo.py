@@ -33,6 +33,11 @@ def get_profile_collection() -> AsyncIOMotorCollection:
     return get_database()[settings.mongo_profile_collection]
 
 
+def get_persona_collection() -> AsyncIOMotorCollection:
+    settings = get_settings()
+    return get_database()[settings.mongo_persona_collection]
+
+
 async def ensure_indexes() -> None:
     """Ensure MongoDB indexes required by API flows exist."""
     memory_collection = get_memory_collection()
@@ -49,6 +54,12 @@ async def ensure_indexes() -> None:
     await memory_collection.create_index(
         [("app_name", 1), ("user_id", 1), ("session_id", 1)],
         name="idx_memory_session_scope",
+    )
+    persona_collection = get_persona_collection()
+    await persona_collection.create_index(
+        [("app_name", 1), ("user_id", 1)],
+        unique=True,
+        name="uniq_persona_per_user_app",
     )
 
 

@@ -17,12 +17,14 @@ from ..schemas.events import Content
 from ..schemas.events import EventSchema
 from ..schemas.memory import MemoryEntrySchema
 from ..services.embedding_service import EmbeddingService
+from ..services.persona_service import PersonaService
 
 
 class MemoryService:
     def __init__(self) -> None:
         self._settings = get_settings()
         self._embedding_service = EmbeddingService()
+        self._persona_service = PersonaService()
 
     async def sync_session_memory(
         self,
@@ -54,6 +56,19 @@ class MemoryService:
             structured_events.append(payload)
 
         collection = get_memory_collection()
+
+        # Keep/update user persona before chunking so downstream agents can
+        # fetch latest personalization state per user.
+        if events:
+            try:
+                await self._persona_service.upsert_from_session_events(
+                    app_name=app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    events=events,
+                )
+            except Exception as exc:
+                print(f"Persona update failed for user_id={user_id}: {exc}")
 
         if not structured_events:
             deleted = 0

@@ -7,6 +7,7 @@ from .db.mongo import ensure_indexes
 from .routers import events
 from .routers import health
 from .routers import memory
+from .routers import persona
 from .routers import sessions
 
 
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(events.router)
     app.include_router(memory.router)
+    app.include_router(persona.router)
     return app
 
 
