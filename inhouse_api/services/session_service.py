@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC
+import base64
 from datetime import datetime
-import random
-import uuid
+import secrets
 from typing import Any
 
 from sqlalchemy import select
@@ -29,7 +28,7 @@ class SessionService:
         state: dict[str, Any] | None = None,
         session_id: str | None = None,
     ) -> SessionResponse:
-        session_id = session_id or str(uuid.uuid4()) # uuid4 value generation for session_id if not provided in the request
+        session_id = session_id or self._generate_encoded_id()
         now = datetime.utcnow()
         record = SessionRecord(
             session_id=session_id,
@@ -147,23 +146,15 @@ class SessionService:
 
     def _ensure_event_ids(self, event: EventSchema) -> None:
         if not event.id:
-            event.id = self._generate_prefixed_ulid("evt")
+            event.id = self._generate_encoded_id()
         if not event.invocation_id:
-            event.invocation_id = self._generate_prefixed_ulid("inv")
+            event.invocation_id = self._generate_encoded_id()
 
     @staticmethod
-    def _generate_prefixed_ulid(prefix: str) -> str:
-        # ULID-style 26-char identifier in Crockford Base32:
-        # 48-bit timestamp (ms) + 80-bit randomness.
-        alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-        timestamp_ms = int(datetime.now(UTC).timestamp() * 1000)
-        random_bits = random.getrandbits(80)
-        value = (timestamp_ms << 80) | random_bits
-        encoded: list[str] = []
-        for _ in range(26):
-            encoded.append(alphabet[value & 0x1F])
-            value >>= 5
-        return f"{prefix}_{''.join(reversed(encoded))}"
+    def _generate_encoded_id() -> str:
+        # 32 random bytes encoded with URL-safe base64 produces a 44-char ID
+        # (including one trailing "="), matching current production-like shape.
+        return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
 
     async def _get_events(self, *, session_id: str) -> list[EventSchema]:
         stmt = (
