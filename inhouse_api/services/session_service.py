@@ -27,7 +27,7 @@ class SessionService:
         state: dict[str, Any] | None = None,
         session_id: str | None = None,
     ) -> SessionResponse:
-        session_id = session_id or str(uuid.uuid4())
+        session_id = session_id or str(uuid.uuid4()) # uuid4 value generation for session_id if not provided in the request
         now = datetime.utcnow()
         record = SessionRecord(
             session_id=session_id,
