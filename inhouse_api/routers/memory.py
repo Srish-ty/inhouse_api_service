@@ -10,7 +10,6 @@ from ..schemas.memory import MemorySearchResponse
 from ..schemas.memory import MemorySyncRequest
 from ..schemas.memory import MemorySyncResponse
 from ..services.memory_service import MemoryService
-from ..services.persona_service import PersonaService
 from ..services.session_service import SessionService
 
 
@@ -49,14 +48,9 @@ async def search_memory(
     query: str,
 ) -> MemorySearchResponse:
     memory_service = MemoryService()
-    persona_service = PersonaService()
     memories = await memory_service.search_memory(
         app_name=app_name,
         user_id=user_id,
         query=query,
     )
-    persona = await persona_service.get_persona(
-        app_name=app_name,
-        user_id=user_id,
-    )
-    return MemorySearchResponse(memories=memories, persona=persona)
+    return MemorySearchResponse(memories=memories)

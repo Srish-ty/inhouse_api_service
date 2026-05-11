@@ -55,6 +55,13 @@ See `.env.example` for a full list. Key ones:
 - `POST /v1/memory/sync-session`
 - `GET  /v1/memory/search?app_name=&user_id=&query=`
 
+`/v1/memory/search` returns retrieved memory entries only. Persona retrieval is
+handled separately via `/v1/persona`.
+
+### Persona
+- `GET  /v1/persona?app_name=&user_id=`
+- `POST /v1/persona/update-from-session`
+
 ### Health
 - `GET /health`
 

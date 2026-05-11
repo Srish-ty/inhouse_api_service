@@ -6,8 +6,6 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
-from .persona import PersonaResponse
-
 
 class MemoryEntrySchema(BaseModel):
     author: str | None = None
@@ -18,7 +16,6 @@ class MemoryEntrySchema(BaseModel):
 
 class MemorySearchResponse(BaseModel):
     memories: list[MemoryEntrySchema] = Field(default_factory=list)
-    persona: PersonaResponse | None = None
 
 
 class MemorySyncRequest(BaseModel):
