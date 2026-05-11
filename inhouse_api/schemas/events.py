@@ -33,7 +33,7 @@ class EventActionsSchema(BaseModel):
 
 
 class EventSchema(BaseModel):
-    id: str
+    id: str | None = None
     invocation_id: str | None = None
     author: str
     timestamp: float

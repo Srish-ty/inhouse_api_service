@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC
 from datetime import datetime
+import random
 import uuid
 from typing import Any
 
@@ -116,6 +118,7 @@ class SessionService:
     async def append_event(
         self, *, app_name: str, user_id: str, session_id: str, event: EventSchema
     ) -> EventSchema:
+        self._ensure_event_ids(event)
         if event.partial:
             return event
 
@@ -141,6 +144,26 @@ class SessionService:
         await self._touch_session(session_id=session_id, app_name=app_name, user_id=user_id)
         await self._db.commit()
         return event
+
+    def _ensure_event_ids(self, event: EventSchema) -> None:
+        if not event.id:
+            event.id = self._generate_prefixed_ulid("evt")
+        if not event.invocation_id:
+            event.invocation_id = self._generate_prefixed_ulid("inv")
+
+    @staticmethod
+    def _generate_prefixed_ulid(prefix: str) -> str:
+        # ULID-style 26-char identifier in Crockford Base32:
+        # 48-bit timestamp (ms) + 80-bit randomness.
+        alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+        timestamp_ms = int(datetime.now(UTC).timestamp() * 1000)
+        random_bits = random.getrandbits(80)
+        value = (timestamp_ms << 80) | random_bits
+        encoded: list[str] = []
+        for _ in range(26):
+            encoded.append(alphabet[value & 0x1F])
+            value >>= 5
+        return f"{prefix}_{''.join(reversed(encoded))}"
 
     async def _get_events(self, *, session_id: str) -> list[EventSchema]:
         stmt = (
