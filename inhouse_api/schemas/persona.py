@@ -8,8 +8,11 @@ from pydantic import Field
 
 class PersonaAttributes(BaseModel):
     job: str | None = None
+    job_guess: str | None = None
     designation: str | None = None
+    designation_guess: str | None = None
     work_field: list[str] = Field(default_factory=list)
+    work_field_guess: list[str] = Field(default_factory=list)
     manager_name: str | None = None
     location: str | None = None
 
@@ -18,7 +21,6 @@ class PersonaAttributes(BaseModel):
 
     age: str | None = None
     experience: str | None = None
-    location: str | None = None
     hobbies: list[str] = Field(default_factory=list)
     user_personality: list[str] = Field(default_factory=list)
     likes: list[str] = Field(default_factory=list)
