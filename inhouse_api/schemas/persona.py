@@ -7,8 +7,15 @@ from pydantic import Field
 
 
 class PersonaAttributes(BaseModel):
-    role: str | None = None
     job: str | None = None
+    designation: str | None = None
+    work_field: list[str] = Field(default_factory=list)
+    manager_name: str | None = None
+    location: str | None = None
+
+    language_preference: str | None = None
+    interaction_pattern: list[str] = Field(default_factory=list)
+
     age: str | None = None
     experience: str | None = None
     location: str | None = None

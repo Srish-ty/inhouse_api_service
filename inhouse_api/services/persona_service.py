@@ -92,7 +92,8 @@ class PersonaService:
 
         url = f"{endpoint}openai/deployments/{model}/chat/completions?api-version={version}"
         headers = {"api-key": key, "Content-Type": "application/json"}
-        prompt = (
+        
+        prompt = ( # need to add job roles here
             "You are a persona summarizer.\n"
             "Given prior persona and latest user utterances, return ONLY JSON with keys: "
             "role, job, age, experience, location, hobbies, user_personality, likes, dislikes, preferences, curiosity_topics.\n"
